@@ -1,19 +1,26 @@
+use once_cell::sync::OnceCell;
 use std::env;
 use std::ffi::CString;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs;
 use std::process;
 #[cfg(target_os = "linux")]
 use std::ptr;
 
+static HOSTNAME: OnceCell<String> = OnceCell::new();
+
 extern "C" fn container_main(_args: *mut libc::c_void) -> libc::c_int {
     println!("Container - inside the container, pid: {}", process::id());
 
     // 切换进程的根目录
+    #[cfg(target_os = "linux")]
     fs::chroot("./rootfs").expect("chroot failed");
     env::set_current_dir("/").expect("set current work directory failed");
-
-    // 打印当前目录
     println!("current dir: {:?}", env::current_dir().unwrap());
+
+    // 设置hostname
+    hostname::set(HOSTNAME.get().unwrap()).expect("set container hostname failed");
+    println!("current container hostname: {:?}", hostname::get().unwrap());
 
     #[cfg(target_os = "linux")]
     unsafe {
@@ -42,12 +49,29 @@ extern "C" fn container_main(_args: *mut libc::c_void) -> libc::c_int {
 }
 
 fn main() {
-    println!("Parent - start a container, pid: {}", process::id());
+    println!(
+        "Parent - start a container, pid: {}, hostname: {:?}",
+        process::id(),
+        hostname::get().expect("get parent hostname failed")
+    );
     let mut stack = vec![0u8; 4096 * 1024];
+    let args = env::args().collect::<Vec<String>>();
+    let mut hostname = "container-default";
+    if args.len() > 1 {
+        hostname = &args[1];
+    }
+    HOSTNAME
+        .set(hostname.to_string())
+        .expect("init global var hostname failed");
+
     #[cfg(target_os = "linux")]
     unsafe {
         let stack_top = stack.as_mut_ptr().add(stack.len()) as *mut libc::c_void;
-        let flags = libc::CLONE_NEWNET | libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::SIGCHLD;
+        let flags = libc::CLONE_NEWUTS
+            | libc::CLONE_NEWNET
+            | libc::CLONE_NEWPID
+            | libc::CLONE_NEWNS
+            | libc::SIGCHLD;
         let pid = libc::clone(container_main, stack_top, flags, ptr::null_mut());
         libc::waitpid(pid, ptr::null::<libc::c_int>() as *mut libc::c_int, 0);
     }
