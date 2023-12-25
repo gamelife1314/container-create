@@ -67,7 +67,8 @@ fn main() {
     #[cfg(target_os = "linux")]
     unsafe {
         let stack_top = stack.as_mut_ptr().add(stack.len()) as *mut libc::c_void;
-        let flags = libc::CLONE_NEWUTS
+        let flags = libc::CLONE_NEWUSER
+            | libc::CLONE_NEWUTS
             | libc::CLONE_NEWNET
             | libc::CLONE_NEWPID
             | libc::CLONE_NEWNS
